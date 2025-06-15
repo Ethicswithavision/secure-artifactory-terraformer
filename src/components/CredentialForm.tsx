@@ -15,10 +15,12 @@ interface CredentialFormProps {
   onCredentialAdded: () => void;
 }
 
+type CredentialType = 'artifactory_token' | 'service_user_password' | 'ldap_password' | 'ssl_certificate';
+
 export const CredentialForm: React.FC<CredentialFormProps> = ({ onCredentialAdded }) => {
   const [formData, setFormData] = useState({
     name: '',
-    type: '',
+    type: '' as CredentialType,
     description: '',
     external_secret_path: '',
     rotation_interval_days: 30,
@@ -45,7 +47,7 @@ export const CredentialForm: React.FC<CredentialFormProps> = ({ onCredentialAdde
 
       setFormData({
         name: '',
-        type: '',
+        type: '' as CredentialType,
         description: '',
         external_secret_path: '',
         rotation_interval_days: 30,
@@ -94,7 +96,7 @@ export const CredentialForm: React.FC<CredentialFormProps> = ({ onCredentialAdde
               <Label htmlFor="type">Credential Type</Label>
               <Select
                 value={formData.type}
-                onValueChange={(value) => setFormData({ ...formData, type: value })}
+                onValueChange={(value: CredentialType) => setFormData({ ...formData, type: value })}
                 required
               >
                 <SelectTrigger>
