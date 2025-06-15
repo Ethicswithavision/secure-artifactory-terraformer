@@ -1,0 +1,99 @@
+
+# Example Terraform Variables File
+# Copy this to terraform.tfvars and customize for your environment
+# DO NOT commit terraform.tfvars to version control
+
+# Terraform Cloud Configuration
+tfc_organization = "your-org-name"
+tfc_workspace    = "artifactory-prod"
+
+# Environment Configuration
+environment  = "prod"
+project_name = "enterprise-artifactory"
+owner        = "platform-team"
+
+# Connection Configuration
+artifactory_url   = "https://your-company.jfrog.io"
+request_timeout   = 60
+retry_max        = 3
+retry_wait_min   = 2
+retry_wait_max   = 30
+
+# Repository Configuration
+repositories = {
+  "docker-local" = {
+    description      = "Local Docker repository"
+    includes_pattern = "**/*"
+    excludes_pattern = ""
+    max_snapshots   = 10
+  }
+  "npm-local" = {
+    description      = "Local NPM repository"
+    includes_pattern = "**/*"
+    excludes_pattern = ""
+    max_snapshots   = 5
+  }
+  "maven-local" = {
+    description      = "Local Maven repository"
+    includes_pattern = "**/*"
+    excludes_pattern = ""
+    max_snapshots   = 15
+  }
+}
+
+# Service Users
+service_users = {
+  "ci-cd-user" = {
+    email  = "cicd@company.com"
+    groups = ["deployers"]
+  }
+  "backup-user" = {
+    email  = "backup@company.com"
+    groups = ["readers"]
+  }
+}
+
+# Permission Targets
+permission_targets = {
+  "docker-deploy" = {
+    repositories     = ["docker-local"]
+    includes_pattern = "**/*"
+    excludes_pattern = ""
+    user            = "ci-cd-user"
+    permissions     = ["read", "write", "annotate"]
+  }
+}
+
+# Security Groups
+security_groups = {
+  "deployers" = {
+    description      = "CI/CD deployment group"
+    admin_privileges = false
+    realm           = "internal"
+    realm_attributes = ""
+  }
+  "readers" = {
+    description      = "Read-only access group"  
+    admin_privileges = false
+    realm           = "internal"
+    realm_attributes = ""
+  }
+}
+
+# Service Tokens
+service_tokens = {
+  "ci-token" = {
+    username    = "ci-cd-user"
+    end_date    = "2024-12-31T23:59:59Z"
+    refreshable = true
+    scope       = "applied-permissions/user"
+  }
+}
+
+# LDAP Configuration (if enabled)
+enable_ldap = false
+
+# Backup Configuration
+backup_cron_schedule    = "0 2 * * *"
+backup_retention_hours  = 168
+backup_excluded_repos   = ["temp-repo"]
