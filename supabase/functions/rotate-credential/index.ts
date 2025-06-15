@@ -19,6 +19,123 @@ interface SecretManager {
   configuration: any;
 }
 
+// Terraform Cloud API integration
+class TerraformCloudService {
+  private baseUrl = 'https://app.terraform.io/api/v2';
+  private token: string;
+  private organization: string;
+
+  constructor(token: string, organization: string) {
+    this.token = token;
+    this.organization = organization;
+  }
+
+  private async request(endpoint: string, options: RequestInit = {}) {
+    const response = await fetch(`${this.baseUrl}${endpoint}`, {
+      ...options,
+      headers: {
+        'Authorization': `Bearer ${this.token}`,
+        'Content-Type': 'application/vnd.api+json',
+        ...options.headers,
+      },
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`TFC API Error: ${response.status} - ${errorText}`);
+    }
+
+    return response.json();
+  }
+
+  async updateVariableInSet(variableSetId: string, key: string, value: string): Promise<void> {
+    console.log(`Updating TFC variable ${key} in variable set ${variableSetId}`);
+    
+    // Get existing variables
+    const varsResponse = await this.request(`/varsets/${variableSetId}/relationships/vars`);
+    const existingVar = varsResponse.data.find((v: any) => v.attributes.key === key);
+
+    if (existingVar) {
+      // Update existing variable
+      const payload = {
+        data: {
+          type: 'vars',
+          id: existingVar.id,
+          attributes: {
+            key,
+            value,
+            sensitive: true,
+            category: 'terraform'
+          }
+        }
+      };
+
+      await this.request(`/varsets/${variableSetId}/relationships/vars/${existingVar.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify(payload),
+      });
+    } else {
+      // Create new variable
+      const payload = {
+        data: {
+          type: 'vars',
+          attributes: {
+            key,
+            value,
+            sensitive: true,
+            category: 'terraform',
+            description: `Rotated credential: ${key}`
+          }
+        }
+      };
+
+      await this.request(`/varsets/${variableSetId}/relationships/vars`, {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      });
+    }
+  }
+
+  async triggerWorkspaceRuns(workspaceNames: string[]): Promise<string[]> {
+    const runIds: string[] = [];
+    
+    for (const workspaceName of workspaceNames) {
+      try {
+        const payload = {
+          data: {
+            type: 'runs',
+            attributes: {
+              message: 'Automated credential rotation trigger',
+              'is-destroy': false,
+              'auto-apply': false
+            },
+            relationships: {
+              workspace: {
+                data: {
+                  type: 'workspaces',
+                  id: workspaceName
+                }
+              }
+            }
+          }
+        };
+
+        const response = await this.request('/runs', {
+          method: 'POST',
+          body: JSON.stringify(payload),
+        });
+
+        runIds.push(response.data.id);
+        console.log(`Triggered run ${response.data.id} for workspace ${workspaceName}`);
+      } catch (error) {
+        console.error(`Failed to trigger run for workspace ${workspaceName}:`, error);
+      }
+    }
+    
+    return runIds;
+  }
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -72,8 +189,33 @@ serve(async (req) => {
         throw new Error(`Failed to fetch secret managers: ${smError.message}`);
       }
 
-      // Simulate credential rotation based on type
-      const newSecretHash = await rotateCredential(credential, secretManagers);
+      // Rotate the credential and get new secret
+      const { newSecret, newSecretHash } = await rotateCredential(credential, secretManagers);
+
+      // Update TFC Variable Set if configured
+      const tfcToken = Deno.env.get('TFC_API_TOKEN');
+      const tfcOrg = Deno.env.get('TFC_ORGANIZATION');
+      const tfcVariableSetId = Deno.env.get('TFC_VARIABLE_SET_ID');
+      const tfcWorkspaces = Deno.env.get('TFC_WORKSPACES')?.split(',') || [];
+
+      if (tfcToken && tfcOrg && tfcVariableSetId) {
+        console.log('Updating Terraform Cloud Variable Set...');
+        const tfcService = new TerraformCloudService(tfcToken, tfcOrg);
+        
+        // Map credential types to TFC variable names
+        const variableKey = getVariableKeyForCredential(credential);
+        
+        if (variableKey) {
+          await tfcService.updateVariableInSet(tfcVariableSetId, variableKey, newSecret);
+          console.log(`Updated TFC variable ${variableKey}`);
+          
+          // Trigger workspace runs if configured
+          if (tfcWorkspaces.length > 0) {
+            const runIds = await tfcService.triggerWorkspaceRuns(tfcWorkspaces);
+            console.log(`Triggered ${runIds.length} workspace runs`);
+          }
+        }
+      }
 
       // Update credential with new rotation info
       const { error: updateError } = await supabase
@@ -147,7 +289,23 @@ serve(async (req) => {
   }
 });
 
-async function rotateCredential(credential: any, secretManagers: SecretManager[]): Promise<string> {
+function getVariableKeyForCredential(credential: any): string | null {
+  // Map credential types to TFC variable names
+  switch (credential.type) {
+    case 'artifactory_token':
+      return 'artifactory_access_token';
+    case 'service_user_password':
+      return `service_user_passwords["${credential.name}"]`;
+    case 'ldap_password':
+      return 'ldap_manager_password';
+    case 'ssl_certificate':
+      return 'client_cert_path';
+    default:
+      return null;
+  }
+}
+
+async function rotateCredential(credential: any, secretManagers: SecretManager[]): Promise<{newSecret: string, newSecretHash: string}> {
   console.log(`Rotating ${credential.type} credential: ${credential.name}`);
 
   // Simulate rotation based on credential type
@@ -165,7 +323,7 @@ async function rotateCredential(credential: any, secretManagers: SecretManager[]
   }
 }
 
-async function rotateArtifactoryToken(credential: any, secretManagers: SecretManager[]): Promise<string> {
+async function rotateArtifactoryToken(credential: any, secretManagers: SecretManager[]): Promise<{newSecret: string, newSecretHash: string}> {
   // Simulate Artifactory token rotation
   const newToken = generateSecureToken();
   
@@ -176,10 +334,11 @@ async function rotateArtifactoryToken(credential: any, secretManagers: SecretMan
   // 4. Revoke old token
   
   await storeInSecretManager(credential.external_secret_path, newToken, secretManagers);
-  return hashSecret(newToken);
+  const hash = await hashSecret(newToken);
+  return { newSecret: newToken, newSecretHash: hash };
 }
 
-async function rotateServiceUserPassword(credential: any, secretManagers: SecretManager[]): Promise<string> {
+async function rotateServiceUserPassword(credential: any, secretManagers: SecretManager[]): Promise<{newSecret: string, newSecretHash: string}> {
   // Simulate service user password rotation
   const newPassword = generateSecurePassword();
   
@@ -189,10 +348,11 @@ async function rotateServiceUserPassword(credential: any, secretManagers: Secret
   // 3. Update service configurations
   
   await storeInSecretManager(credential.external_secret_path, newPassword, secretManagers);
-  return hashSecret(newPassword);
+  const hash = await hashSecret(newPassword);
+  return { newSecret: newPassword, newSecretHash: hash };
 }
 
-async function rotateLdapPassword(credential: any, secretManagers: SecretManager[]): Promise<string> {
+async function rotateLdapPassword(credential: any, secretManagers: SecretManager[]): Promise<{newSecret: string, newSecretHash: string}> {
   // Simulate LDAP password rotation
   const newPassword = generateSecurePassword();
   
@@ -202,10 +362,11 @@ async function rotateLdapPassword(credential: any, secretManagers: SecretManager
   // 3. Update LDAP client configurations
   
   await storeInSecretManager(credential.external_secret_path, newPassword, secretManagers);
-  return hashSecret(newPassword);
+  const hash = await hashSecret(newPassword);
+  return { newSecret: newPassword, newSecretHash: hash };
 }
 
-async function rotateSslCertificate(credential: any, secretManagers: SecretManager[]): Promise<string> {
+async function rotateSslCertificate(credential: any, secretManagers: SecretManager[]): Promise<{newSecret: string, newSecretHash: string}> {
   // Simulate SSL certificate rotation
   const certFingerprint = generateCertificateFingerprint();
   
@@ -216,7 +377,8 @@ async function rotateSslCertificate(credential: any, secretManagers: SecretManag
   // 4. Revoke old certificate
   
   await storeInSecretManager(credential.external_secret_path, certFingerprint, secretManagers);
-  return hashSecret(certFingerprint);
+  const hash = await hashSecret(certFingerprint);
+  return { newSecret: certFingerprint, newSecretHash: hash };
 }
 
 async function storeInSecretManager(path: string, secret: string, secretManagers: SecretManager[]): Promise<void> {
