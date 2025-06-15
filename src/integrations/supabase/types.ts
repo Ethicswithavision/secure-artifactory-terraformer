@@ -9,16 +9,197 @@ export type Json =
 export type Database = {
   public: {
     Tables: {
-      [_ in never]: never
+      credentials: {
+        Row: {
+          created_at: string
+          description: string | null
+          expires_at: string | null
+          external_secret_path: string
+          id: string
+          is_active: boolean
+          last_rotated_at: string | null
+          metadata: Json | null
+          name: string
+          next_rotation_at: string | null
+          rotation_interval_days: number
+          type: Database["public"]["Enums"]["credential_type"]
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          description?: string | null
+          expires_at?: string | null
+          external_secret_path: string
+          id?: string
+          is_active?: boolean
+          last_rotated_at?: string | null
+          metadata?: Json | null
+          name: string
+          next_rotation_at?: string | null
+          rotation_interval_days?: number
+          type: Database["public"]["Enums"]["credential_type"]
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          description?: string | null
+          expires_at?: string | null
+          external_secret_path?: string
+          id?: string
+          is_active?: boolean
+          last_rotated_at?: string | null
+          metadata?: Json | null
+          name?: string
+          next_rotation_at?: string | null
+          rotation_interval_days?: number
+          type?: Database["public"]["Enums"]["credential_type"]
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      rotation_logs: {
+        Row: {
+          completed_at: string | null
+          credential_id: string
+          error_message: string | null
+          id: string
+          metadata: Json | null
+          new_secret_hash: string | null
+          old_secret_hash: string | null
+          performed_by: string | null
+          rotation_trigger: string
+          started_at: string
+          status: Database["public"]["Enums"]["rotation_status"]
+        }
+        Insert: {
+          completed_at?: string | null
+          credential_id: string
+          error_message?: string | null
+          id?: string
+          metadata?: Json | null
+          new_secret_hash?: string | null
+          old_secret_hash?: string | null
+          performed_by?: string | null
+          rotation_trigger: string
+          started_at?: string
+          status: Database["public"]["Enums"]["rotation_status"]
+        }
+        Update: {
+          completed_at?: string | null
+          credential_id?: string
+          error_message?: string | null
+          id?: string
+          metadata?: Json | null
+          new_secret_hash?: string | null
+          old_secret_hash?: string | null
+          performed_by?: string | null
+          rotation_trigger?: string
+          started_at?: string
+          status?: Database["public"]["Enums"]["rotation_status"]
+        }
+        Relationships: [
+          {
+            foreignKeyName: "rotation_logs_credential_id_fkey"
+            columns: ["credential_id"]
+            isOneToOne: false
+            referencedRelation: "credentials"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      rotation_schedules: {
+        Row: {
+          created_at: string
+          credential_id: string
+          cron_expression: string
+          id: string
+          is_enabled: boolean
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          credential_id: string
+          cron_expression: string
+          id?: string
+          is_enabled?: boolean
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          credential_id?: string
+          cron_expression?: string
+          id?: string
+          is_enabled?: boolean
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "rotation_schedules_credential_id_fkey"
+            columns: ["credential_id"]
+            isOneToOne: false
+            referencedRelation: "credentials"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      secret_managers: {
+        Row: {
+          configuration: Json
+          created_at: string
+          endpoint_url: string | null
+          id: string
+          is_active: boolean
+          name: string
+          region: string | null
+          type: string
+          updated_at: string
+        }
+        Insert: {
+          configuration?: Json
+          created_at?: string
+          endpoint_url?: string | null
+          id?: string
+          is_active?: boolean
+          name: string
+          region?: string | null
+          type: string
+          updated_at?: string
+        }
+        Update: {
+          configuration?: Json
+          created_at?: string
+          endpoint_url?: string | null
+          id?: string
+          is_active?: boolean
+          name?: string
+          region?: string | null
+          type?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      calculate_next_rotation_date: {
+        Args: { last_rotated: string; interval_days: number }
+        Returns: string
+      }
     }
     Enums: {
-      [_ in never]: never
+      credential_type:
+        | "artifactory_token"
+        | "service_user_password"
+        | "ldap_password"
+        | "ssl_certificate"
+      rotation_status:
+        | "pending"
+        | "in_progress"
+        | "completed"
+        | "failed"
+        | "skipped"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -133,6 +314,20 @@ export type CompositeTypes<
 
 export const Constants = {
   public: {
-    Enums: {},
+    Enums: {
+      credential_type: [
+        "artifactory_token",
+        "service_user_password",
+        "ldap_password",
+        "ssl_certificate",
+      ],
+      rotation_status: [
+        "pending",
+        "in_progress",
+        "completed",
+        "failed",
+        "skipped",
+      ],
+    },
   },
 } as const
